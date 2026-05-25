@@ -22,3 +22,11 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+
+
+# Claude Code & working docs (local only)
+docs/
+CLAUDE.md
+.claude/
+DEBUG.md
+ARCHITECTURE.md
