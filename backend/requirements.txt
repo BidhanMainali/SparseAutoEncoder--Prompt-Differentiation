@@ -5,10 +5,7 @@ pydantic==2.13.4
 python-dotenv==1.2.2
 requests==2.34.2
 
-# NLA-inspired verbalizer (Claude API)
-anthropic
-
-# SAE pipeline
+# SAE pipeline (also powers the NLA reconstruction in verbalize_prompt)
 torch==2.12.0
 transformer-lens==3.2.1
 sae-lens==6.43.0

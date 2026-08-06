@@ -91,3 +91,73 @@ def diff_prompts(prompt_a, prompt_b, top_k=50):
         "similarity": similarity,
         "shared": shared,
     }
+
+
+# ---------------------------------------------------------------------------
+# Natural Language Autoencoder (NLA) — a simplified, local implementation
+# ---------------------------------------------------------------------------
+# Anthropic's NLA idea: describe a model's internal activation in natural
+# language, then prove the description is faithful by RECONSTRUCTING the original
+# activation from it and measuring how close the reconstruction is.
+#
+# A sparse autoencoder already hands us both halves of that loop:
+#   - Verbalizer   (activation -> language): the handful of features that fire
+#     most strongly. Each has a human-readable label (fetched from Neuronpedia in
+#     the API layer), so those labels ARE the natural-language description.
+#   - Reconstructor (language -> activation): rebuild the activation from ONLY
+#     those named features, using the SAE's decoder (sae.decode).
+#   - Fidelity: cosine similarity between the true activation and the
+#     reconstruction. 1.0 = the named features fully explain the activation's
+#     direction; lower = the description left information behind.
+# ---------------------------------------------------------------------------
+
+
+def _cosine(a, b):
+    """Cosine similarity between two 1-D activation tensors.
+
+    Scale-invariant, so it doesn't matter if the SAE's reconstruction comes out at
+    a different overall magnitude than the original activation.
+    """
+    return torch.nn.functional.cosine_similarity(a, b, dim=0).item()
+
+
+def verbalize_prompt(prompt, top_n=10):
+    """Run one prompt through the NLA round-trip and score how faithful it is.
+
+    Returns a dict:
+        {
+          "features":    {feature_id: strength, ...}  # the top-N features that make
+                                                       # up the natural-language description
+          "fidelity":    float  # cosine(reconstruction from the top-N features, true activation)
+          "sae_ceiling": float  # cosine(reconstruction from ALL SAE features, true activation);
+                                 # the best this SAE can do, i.e. an upper bound on fidelity
+        }
+    """
+    # 1. Run the model and grab the layer-8 residual-stream activation of the LAST
+    #    token -- the same point in the network the rest of the pipeline analyses.
+    tokens = model.to_tokens(prompt)
+    _, cache = model.run_with_cache(tokens, names_filter="blocks.8.hook_resid_pre")
+    activation = cache["blocks.8.hook_resid_pre"][0, -1]          # shape: [d_model]
+
+    # 2. Encode that activation into the SAE's feature space. Most of the ~24k
+    #    features sit at ~0; only a few are meaningfully active. (unsqueeze/squeeze
+    #    just add and remove the batch dimension the SAE expects.)
+    features = sae.encode(activation.unsqueeze(0)).squeeze(0)     # shape: [d_sae]
+
+    # 3. VERBALIZE: keep only the top-N strongest features. These are the ones we
+    #    can name in English, so they stand in for the natural-language summary.
+    values, indices = features.topk(top_n)
+    named = torch.zeros_like(features)   # start from all-zeros...
+    named[indices] = values              # ...and switch on just the named features
+
+    # 4. RECONSTRUCT: decode back into activation space -- once from the named
+    #    features only, and once from every feature (the SAE's own ceiling).
+    named_recon = sae.decode(named.unsqueeze(0)).squeeze(0)       # from the top-N only
+    full_recon = sae.decode(features.unsqueeze(0)).squeeze(0)     # from all features
+
+    # 5. SCORE: how well does each reconstruction match the true activation?
+    return {
+        "features": dict(zip(indices.tolist(), values.tolist())),
+        "fidelity": _cosine(named_recon, activation),
+        "sae_ceiling": _cosine(full_recon, activation),
+    }

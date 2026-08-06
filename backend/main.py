@@ -5,8 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from pipeline import diff_prompts
-from verbalize import verbalize
+from pipeline import diff_prompts, verbalize_prompt
 
 load_dotenv()
 NEURONPEDIA_API_KEY = os.getenv("NEURONPEDIA_API_KEY")
@@ -87,14 +86,36 @@ def diff(req: DiffRequest):
     }
 
 
+def _nla_view(view):
+    """Attach Neuronpedia labels to a pipeline.verbalize_prompt() result.
+
+    `view` is {"features": {id: strength}, "fidelity": float, "sae_ceiling": float}.
+    We turn the raw feature ids into a human-readable "verbalization" (each named
+    feature with its label) and round the two reconstruction-fidelity scores.
+    """
+    return {
+        # The natural-language description: each named feature with its label.
+        "verbalization": [
+            {"feature_id": fid, "strength": round(strength, 2), "label": fetch_label(fid)}
+            for fid, strength in view["features"].items()
+        ],
+        # How faithfully those named features reconstruct the true activation (0-1)...
+        "fidelity": round(view["fidelity"], 4),
+        # ...compared with the best this SAE can do using ALL of its features.
+        "sae_ceiling": round(view["sae_ceiling"], 4),
+    }
+
+
 @app.post("/verbalize")
 def verbalize_endpoint(req: DiffRequest):
-    """NLA-inspired: the /diff payload plus a plain-English summary of the diff
-    and a round-trip fidelity score (see verbalize.py)."""
-    labeled_diffs, labeled_shared, similarity = _labeled(req)
+    """Natural Language Autoencoder view of each prompt.
+
+    For prompt A and prompt B independently: describe the model's internal
+    activation as its top interpretable features, reconstruct the activation from
+    those named features alone, and report how faithful that reconstruction is.
+    (Use /diff to compare the two prompts against each other.)
+    """
     return {
-        "results": labeled_diffs,
-        "similarity": similarity,
-        "shared": labeled_shared,
-        "nla": verbalize(labeled_diffs, labeled_shared),
+        "prompt_a": _nla_view(verbalize_prompt(req.prompt_a, req.top_n)),
+        "prompt_b": _nla_view(verbalize_prompt(req.prompt_b, req.top_n)),
     }
