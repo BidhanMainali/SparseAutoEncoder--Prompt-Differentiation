@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from pipeline import diff_prompts
+from verbalize import verbalize
 
 load_dotenv()
 NEURONPEDIA_API_KEY = os.getenv("NEURONPEDIA_API_KEY")
@@ -45,8 +46,11 @@ def read_root():
     return {"message": "PromptLens backend is alive"}
 
 
-@app.post("/diff")
-def diff(req: DiffRequest):
+def _labeled(req: DiffRequest):
+    """Run the SAE diff and attach Neuronpedia labels.
+
+    Shared by /diff and /verbalize. Returns (labeled_diffs, labeled_shared, similarity).
+    """
     output = diff_prompts(req.prompt_a, req.prompt_b)
 
     # Label the top-changed features (the diff)
@@ -70,8 +74,27 @@ def diff(req: DiffRequest):
             "label": fetch_label(row["feature_id"]),
         })
 
+    return labeled_diffs, labeled_shared, round(output["similarity"], 4)
+
+
+@app.post("/diff")
+def diff(req: DiffRequest):
+    labeled_diffs, labeled_shared, similarity = _labeled(req)
     return {
         "results": labeled_diffs,
-        "similarity": round(output["similarity"], 4),
+        "similarity": similarity,
         "shared": labeled_shared,
+    }
+
+
+@app.post("/verbalize")
+def verbalize_endpoint(req: DiffRequest):
+    """NLA-inspired: the /diff payload plus a plain-English summary of the diff
+    and a round-trip fidelity score (see verbalize.py)."""
+    labeled_diffs, labeled_shared, similarity = _labeled(req)
+    return {
+        "results": labeled_diffs,
+        "similarity": similarity,
+        "shared": labeled_shared,
+        "nla": verbalize(labeled_diffs, labeled_shared),
     }
