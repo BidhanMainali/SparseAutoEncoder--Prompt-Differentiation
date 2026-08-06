@@ -96,7 +96,10 @@ backend/
   pipeline.py      # GPT-2 + SAE: feature extraction, diff, and the NLA reconstruction (verbalize_prompt)
   main.py          # FastAPI app: /diff and /verbalize, Neuronpedia labelling
   requirements.txt
-frontend/          # React 19 + TypeScript + Vite + Tailwind (UI — currently a scaffold)
+frontend/          # React 19 + TypeScript + Vite + Tailwind
+  src/api.ts        # typed client for /diff and /verbalize
+  src/components.tsx# dashboard widgets: similarity gauge, diff bars, fidelity meters
+  src/App.tsx       # the diff dashboard (two prompts → Compare → results)
 ```
 
 ---
@@ -173,8 +176,14 @@ npm install
 npm run dev                        # http://localhost:5173 (CORS is pre-allowed for it)
 ```
 
-The React UI is currently a scaffold; the backend is fully functional and can be
-driven directly (e.g. via the FastAPI docs at `http://127.0.0.1:8000/docs`).
+Start the backend first, then open the dashboard at **http://localhost:5173**: enter
+two prompts, click **Compare**, and you'll get the similarity gauge, the ▲/▼ feature
+diff (each label links to Neuronpedia), the shared features, and per-prompt NLA fidelity
+meters. The backend can also be driven directly via the FastAPI docs at
+`http://127.0.0.1:8000/docs`.
+
+Point the UI at a non-default backend with `VITE_API_URL` (defaults to
+`http://127.0.0.1:8000`).
 
 ---
 
