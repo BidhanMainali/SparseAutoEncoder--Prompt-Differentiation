@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from pipeline import diff_prompts
 
 load_dotenv()
-NEURONPEDIA_API_KEY = os.getenv("sk-np-ptVxI4ZDMQjtARYs3FoioHYb0bNvsqCFZ6D2503dpj40")
+NEURONPEDIA_API_KEY = os.getenv("NEURONPEDIA_API_KEY")
 
 app = FastAPI()
 
@@ -28,8 +28,9 @@ class DiffRequest(BaseModel):
 
 def fetch_label(feature_id):
     url = f"https://www.neuronpedia.org/api/feature/gpt2-small/8-res-jb/{feature_id}"
+    headers = {"X-Api-Key": NEURONPEDIA_API_KEY} if NEURONPEDIA_API_KEY else {}
     try:
-        r = requests.get(url, timeout=5)
+        r = requests.get(url, headers=headers, timeout=5)
         data = r.json()
         explanations = data.get("explanations", [])
         if explanations:
@@ -46,11 +47,12 @@ def read_root():
 
 @app.post("/diff")
 def diff(req: DiffRequest):
-    results = diff_prompts(req.prompt_a, req.prompt_b)
+    output = diff_prompts(req.prompt_a, req.prompt_b)
 
-    labeled = []
-    for row in results[:req.top_n]:
-        labeled.append({
+    # Label the top-changed features (the diff)
+    labeled_diffs = []
+    for row in output["diffs"][:req.top_n]:
+        labeled_diffs.append({
             "feature_id": row["feature_id"],
             "strength_a": round(row["strength_a"], 2),
             "strength_b": round(row["strength_b"], 2),
@@ -58,4 +60,18 @@ def diff(req: DiffRequest):
             "label": fetch_label(row["feature_id"]),
         })
 
-    return {"results": labeled}
+    # Label the top shared features
+    labeled_shared = []
+    for row in output["shared"]:
+        labeled_shared.append({
+            "feature_id": row["feature_id"],
+            "strength_a": round(row["strength_a"], 2),
+            "strength_b": round(row["strength_b"], 2),
+            "label": fetch_label(row["feature_id"]),
+        })
+
+    return {
+        "results": labeled_diffs,
+        "similarity": round(output["similarity"], 4),
+        "shared": labeled_shared,
+    }
